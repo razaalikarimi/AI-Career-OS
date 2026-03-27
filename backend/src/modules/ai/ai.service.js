@@ -196,6 +196,7 @@ class AIOrchestrationService {
       openai: this._callOpenAI.bind(this),
       anthropic: this._callAnthropic.bind(this),
       google: this._callGemini.bind(this),
+      gemini: this._callGemini.bind(this),
     };
     this.defaultProvider = process.env.AI_PROVIDER || 'openai';
     this.fallbackProvider = process.env.AI_FALLBACK_PROVIDER || 'anthropic';

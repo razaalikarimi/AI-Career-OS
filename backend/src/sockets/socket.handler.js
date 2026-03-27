@@ -68,38 +68,43 @@ const setupSocketIO = (io) => {
   });
 
   // ─── Notification Worker ─────────────────────────────────────────────────────
-  const notificationWorker = new Worker(
-    'notifications',
-    async (job) => {
-      const { userId, type, data } = job.data;
+  let notificationWorker = null;
+  if (!getRedisClient().isMock) {
+    notificationWorker = new Worker(
+      'notifications',
+      async (job) => {
+        const { userId, type, data } = job.data;
 
-      // Emit to connected user(s)
-      io.to(`user:${userId}`).emit('notification', {
-        id: job.id,
-        type,
-        data,
-        timestamp: new Date().toISOString(),
-      });
-
-      // Special events
-      if (type === 'RESUME_ANALYSIS_COMPLETE' && data.resumeId) {
-        io.to(`resume:${data.resumeId}`).emit('resume:analyzed', {
-          resumeId: data.resumeId,
-          atsScore: data.atsScore,
+        // Emit to connected user(s)
+        io.to(`user:${userId}`).emit('notification', {
+          id: job.id,
+          type,
+          data,
+          timestamp: new Date().toISOString(),
         });
+
+        // Special events
+        if (type === 'RESUME_ANALYSIS_COMPLETE' && data.resumeId) {
+          io.to(`resume:${data.resumeId}`).emit('resume:analyzed', {
+            resumeId: data.resumeId,
+            atsScore: data.atsScore,
+          });
+        }
+
+        logger.info({ message: 'Notification delivered', userId, type });
+      },
+      {
+        connection: getRedisClient,
+        concurrency: 10,
       }
+    );
 
-      logger.info({ message: 'Notification delivered', userId, type });
-    },
-    {
-      connection: getRedisClient,
-      concurrency: 10,
-    }
-  );
-
-  notificationWorker.on('failed', (job, err) => {
-    logger.error({ message: 'Notification delivery failed', jobId: job?.id, error: err.message });
-  });
+    notificationWorker.on('failed', (job, err) => {
+      logger.error({ message: 'Notification delivery failed', jobId: job?.id, error: err.message });
+    });
+  } else {
+    logger.warn('Redis is mocked, skipping notification worker initialization.');
+  }
 
   // Utility: Emit to specific user from outside socket context
   const emitToUser = (userId, event, data) => {

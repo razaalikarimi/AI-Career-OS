@@ -60,19 +60,31 @@ api.interceptors.response.use(
       try {
         const { data } = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
         const { accessToken, refreshToken: newRefresh } = data.data;
+
         localStorage.setItem('access_token', accessToken);
         localStorage.setItem('refresh_token', newRefresh);
-        api.defaults.headers.Authorization = `Bearer ${accessToken}`;
+
         processQueue(null, accessToken);
         originalRequest.headers.Authorization = `Bearer ${accessToken}`;
         return api(originalRequest);
       } catch (refreshError) {
         processQueue(refreshError, null);
         localStorage.clear();
-        window.location.href = '/auth/login';
+        console.error('Session expired, logging out...');
+        if (typeof window !== 'undefined') {
+          window.location.href = '/auth/login';
+        }
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;
+      }
+    }
+
+    // Handle session expiration for all other cases
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      localStorage.clear();
+      if (typeof window !== 'undefined' && !window.location.pathname.includes('/auth/')) {
+        window.location.href = '/auth/login';
       }
     }
 

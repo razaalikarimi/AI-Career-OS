@@ -4,6 +4,7 @@ const { resumeQueue } = require('../../jobs/queues');
 const { cache } = require('../../config/redis');
 const logger = require('../../utils/logger');
 const { NotFoundError, ValidationError } = require('../../utils/errors');
+const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 
 class ResumeService {
@@ -27,7 +28,9 @@ class ResumeService {
     // Construct file URL (S3 or local)
     const fileUrl = `${process.env.STORAGE_BASE_URL || '/uploads'}/${file.filename}`;
 
+    const resumeId = uuidv4();
     const resume = await resumeRepository.create({
+      id: resumeId,
       userId,
       fileName: file.originalname,
       fileUrl,

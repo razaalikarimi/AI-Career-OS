@@ -94,8 +94,13 @@ const bootstrap = async () => {
     // Setup Socket.io
     setupSocketIO(io);
 
-    // Start workers
-    require('./jobs/workers/resume.worker');
+    // Start workers if Redis is properly connected
+    const { getRedisClient } = require('./config/redis');
+    if (!getRedisClient().isMock) {
+      require('./jobs/workers/resume.worker');
+    } else {
+      logger.warn('Redis is mocked, skipping worker process initialization.');
+    }
 
     httpServer.listen(PORT, () => {
       logger.info({

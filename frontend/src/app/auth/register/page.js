@@ -2,9 +2,13 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { authAPI } from '@/lib/api';
+import toast from 'react-hot-toast';
 import { Zap, Eye, EyeOff, ArrowRight, Mail, Lock, User } from 'lucide-react';
 
 export default function RegisterPage() {
+  const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({ firstName: '', lastName: '', email: '', password: '' });
@@ -12,10 +16,28 @@ export default function RegisterPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    // Simulate API call
-    setTimeout(() => {
-      window.location.href = '/dashboard';
-    }, 1500);
+
+    try {
+      const { data } = await authAPI.register({
+        firstName: form.firstName,
+        lastName: form.lastName,
+        email: form.email,
+        password: form.password,
+      });
+
+      const { accessToken, refreshToken } = data.data;
+      localStorage.setItem('access_token', accessToken);
+      localStorage.setItem('refresh_token', refreshToken);
+
+      toast.success('Account created successfully!');
+      router.push('/dashboard');
+    } catch (error) {
+      const details = error.response?.data?.error?.details;
+      const message = details?.[0]?.message || error.response?.data?.error?.message || 'Registration failed';
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

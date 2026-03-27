@@ -3,83 +3,107 @@ const logger = require('../utils/logger');
 
 let redisClient = null;
 
-const createRedisClient = () => {
-  const client = new Redis({
-    host: process.env.REDIS_HOST || '127.0.0.1',
-    port: parseInt(process.env.REDIS_PORT) || 6379,
-    password: process.env.REDIS_PASSWORD || undefined,
-    db: parseInt(process.env.REDIS_DB) || 0,
-    maxRetriesPerRequest: 3,
-    retryStrategy: (times) => {
-      if (times > 10) {
-        logger.error('Redis max retries reached, giving up');
-        return null;
-      }
-      return Math.min(times * 100, 3000);
+const createMockRedis = () => {
+  logger.warn('Running with Mock Redis (In-Memory mode). Caching works in current process.');
+  const store = new Map();
+  return {
+    isMock: true,
+    on: () => {},
+    once: () => {},
+    off: () => {},
+    emit: () => {},
+    get: async (key) => store.get(key) || null,
+    set: async (key, val) => { store.set(key, val); return 'OK'; },
+    setex: async (key, ttl, val) => { store.set(key, val); return 'OK'; },
+    del: async (key) => { store.delete(key); return 1; },
+    keys: async () => Array.from(store.keys()),
+    exists: async (key) => store.has(key) ? 1 : 0,
+    ttl: async () => 3600,
+    incr: async (key) => {
+       const val = parseInt(store.get(key) || '0') + 1;
+       store.set(key, val.toString());
+       return val;
     },
-    reconnectOnError: (err) => {
-      logger.warn(`Redis reconnecting on error: ${err.message}`);
-      return true;
-    },
-    lazyConnect: false,
-    enableReadyCheck: true,
-    showFriendlyErrorStack: process.env.NODE_ENV !== 'production',
-  });
-
-  client.on('connect', () => logger.info('✅ Redis connected'));
-  client.on('ready', () => logger.info('Redis client ready'));
-  client.on('error', (err) => logger.error(`Redis error: ${err.message}`));
-  client.on('close', () => logger.warn('Redis connection closed'));
-  client.on('reconnecting', () => logger.info('Redis reconnecting...'));
-
-  return client;
+    expire: async () => true,
+    quit: async () => 'OK',
+    ping: async () => 'PONG',
+    status: 'ready'
+  };
 };
 
 const connectRedis = async () => {
-  redisClient = createRedisClient();
-  await redisClient.ping();
-  return redisClient;
+  if (process.env.SKIP_REDIS === 'true') {
+     redisClient = createMockRedis();
+     return redisClient;
+  }
+
+  try {
+    const client = new Redis({
+      host: process.env.REDIS_HOST || '127.0.0.1',
+      port: parseInt(process.env.REDIS_PORT) || 6379,
+      password: process.env.REDIS_PASSWORD || undefined,
+      db: parseInt(process.env.REDIS_DB) || 0,
+      maxRetriesPerRequest: 1, // Minimize failure time
+      retryStrategy: (times) => {
+        if (times > 2) {
+          logger.error('Redis max retries reached, giving up');
+          return null; // Give up
+        }
+        return 1000;
+      },
+      showFriendlyErrorStack: false,
+    });
+
+    return new Promise((resolve) => {
+      client.on('error', (err) => {
+        logger.error(`Redis connection failed: ${err.message}`);
+        redisClient = createMockRedis();
+        resolve(redisClient);
+      });
+
+      client.on('connect', () => {
+        logger.info('✅ Redis connected');
+        redisClient = client;
+        resolve(client);
+      });
+
+      // Timeout the connection attempt after 2 seconds
+      setTimeout(() => {
+        if (!redisClient || redisClient.isMock) {
+          logger.warn('Redis connection timeout - using mock');
+          redisClient = createMockRedis();
+          resolve(redisClient);
+        }
+      }, 3000);
+    });
+  } catch (error) {
+    logger.error(`Failed to initialize Redis: ${error.message}`);
+    redisClient = createMockRedis();
+    return redisClient;
+  }
 };
 
 const getRedisClient = () => {
-  if (!redisClient) throw new Error('Redis not initialized. Call connectRedis() first.');
+  if (!redisClient) {
+    logger.warn('Redis not initialized, returning mock.');
+    return createMockRedis();
+  }
   return redisClient;
 };
 
-// Cache utility methods
 const cache = {
   get: async (key) => {
-    const client = getRedisClient();
-    const value = await client.get(key);
-    return value ? JSON.parse(value) : null;
+    try {
+      const val = await getRedisClient().get(key);
+      return val ? JSON.parse(val) : null;
+    } catch {
+      return null;
+    }
   },
-  set: async (key, value, ttlSeconds = 3600) => {
-    const client = getRedisClient();
-    await client.setex(key, ttlSeconds, JSON.stringify(value));
-  },
-  del: async (key) => {
-    const client = getRedisClient();
-    await client.del(key);
-  },
-  invalidatePattern: async (pattern) => {
-    const client = getRedisClient();
-    const keys = await client.keys(pattern);
-    if (keys.length > 0) await client.del(...keys);
-  },
-  exists: async (key) => {
-    const client = getRedisClient();
-    return await client.exists(key);
-  },
-  ttl: async (key) => {
-    const client = getRedisClient();
-    return await client.ttl(key);
-  },
-  increment: async (key, ttlSeconds = 3600) => {
-    const client = getRedisClient();
-    const value = await client.incr(key);
-    if (value === 1) await client.expire(key, ttlSeconds);
-    return value;
-  },
+  set: async (key, val, ttl = 3600) => { try { await getRedisClient().setex(key, ttl, JSON.stringify(val)); } catch {} },
+  del: async (key) => { try { await getRedisClient().del(key); } catch {} },
+  exists: async (key) => { try { return await getRedisClient().exists(key); } catch { return 0; } }
 };
 
 module.exports = { connectRedis, getRedisClient, cache };
+

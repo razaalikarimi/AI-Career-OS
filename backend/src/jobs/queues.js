@@ -20,31 +20,49 @@ const defaultJobOptions = {
 
 // ─── Queue Definitions ─────────────────────────────────────────────────────────
 
-const resumeQueue = new Queue('resume-processing', {
+const createQueue = (name, opts) => {
+  const conn = getConnection();
+  if (conn.isMock) {
+    logger.warn(`Bypassing BullMQ Queue [${name}] - Running without Redis fallback.`);
+    return {
+      name,
+      add: async (jobName, data) => {
+        logger.info(`[Fallback Queue] Job ${jobName} skipped for ${name} (Redis bypassed).`);
+        return { id: 'mock-' + Date.now(), data };
+      },
+      on: () => {}
+    };
+  }
+  return new Queue(name, opts);
+};
+
+const resumeQueue = createQueue('resume-processing', {
   connection: getConnection,
   defaultJobOptions: { ...defaultJobOptions, priority: 2 },
 });
 
-const aiQueue = new Queue('ai-processing', {
+const aiQueue = createQueue('ai-processing', {
   connection: getConnection,
   defaultJobOptions: { ...defaultJobOptions, priority: 3 },
 });
 
-const notificationQueue = new Queue('notifications', {
+const notificationQueue = createQueue('notifications', {
   connection: getConnection,
   defaultJobOptions: { ...defaultJobOptions, priority: 5, attempts: 5 },
 });
 
-const emailQueue = new Queue('email', {
+const emailQueue = createQueue('email', {
   connection: getConnection,
   defaultJobOptions: { ...defaultJobOptions, priority: 4, attempts: 5 },
 });
 
 // Log queue events
 const setupQueueEvents = (queue) => {
-  queue.on('error', (error) => {
-    logger.error({ message: `Queue error: ${queue.name}`, error: error.message });
-  });
+  if (queue.on) {
+    queue.on('error', (error) => {
+      logger.error({ message: `Queue error: ${queue.name}`, error: error.message });
+    });
+  }
 };
 
 [resumeQueue, aiQueue, notificationQueue, emailQueue].forEach(setupQueueEvents);

@@ -2,9 +2,13 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Zap, Eye, EyeOff, ArrowRight, Mail, Lock } from 'lucide-react';
+import { authAPI } from '@/lib/api';
+import toast from 'react-hot-toast';
 
 export default function LoginPage() {
+  const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({ email: '', password: '' });
@@ -12,10 +16,21 @@ export default function LoginPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    // Simulate API call
-    setTimeout(() => {
-      window.location.href = '/dashboard';
-    }, 1500);
+
+    try {
+      const { data } = await authAPI.login(form);
+      const { accessToken, refreshToken } = data.data;
+
+      localStorage.setItem('access_token', accessToken);
+      localStorage.setItem('refresh_token', refreshToken);
+
+      toast.success('Logged in successfully!');
+      router.push('/dashboard');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Login failed. Please check your credentials.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

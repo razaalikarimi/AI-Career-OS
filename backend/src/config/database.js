@@ -56,8 +56,19 @@ const connectDB = async () => {
 
 const query = async (sql, params = []) => {
   const poolInstance = getPool();
-  const [rows] = await poolInstance.execute(sql, params);
-  return rows;
+  try {
+    const [rows] = await poolInstance.execute(sql, params);
+    return rows;
+  } catch (error) {
+    logger.error({
+      message: 'Database query failed',
+      sql,
+      params,
+      error: error.message,
+      stack: error.stack
+    });
+    throw error;
+  }
 };
 
 const transaction = async (callback) => {

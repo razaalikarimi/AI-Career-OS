@@ -26,19 +26,14 @@ class ResumeRepository {
     return rows[0] || null;
   }
 
-  async create({ userId, fileName, fileUrl, fileSize }) {
-    return transaction(async (conn) => {
-      const [result] = await conn.execute(
-        `INSERT INTO resumes (id, user_id, file_name, file_url, file_size, status)
-         VALUES (UUID(), ?, ?, ?, ?, 'pending')`,
-        [userId, fileName, fileUrl, fileSize]
-      );
-      const [rows] = await conn.execute(
-        'SELECT * FROM resumes WHERE file_url = ? AND user_id = ? ORDER BY created_at DESC LIMIT 1',
-        [fileUrl, userId]
-      );
-      return rows[0];
-    });
+  async create({ id, userId, fileName, fileUrl, fileSize }) {
+    await query(
+      `INSERT INTO resumes (id, user_id, file_name, file_url, file_size, status)
+       VALUES (?, ?, ?, ?, ?, 'pending')`,
+      [id, userId, fileName, fileUrl, fileSize]
+    );
+    const rows = await query('SELECT * FROM resumes WHERE id = ?', [id]);
+    return rows[0];
   }
 
   async updateStatus(id, status, analysisData = null) {
